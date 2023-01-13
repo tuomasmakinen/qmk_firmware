@@ -80,7 +80,7 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
  * ,-------------------------------------------.                              ,-------------------------------------------.
  * |  Esc   |   Q  |   W  |   E  |   R  |   T  |                              |   Y  |   U  |   I  |   O  |   P  |  Bksp  |
  * |--------+------+------+------+------+------|                              |------+------+------+------+------+--------|
- * |  Tab   |Ctrl/A|Alt/S |GUI/D |Shft/F|   G  |                              |   H  |Shft/J|GUI/K |Alt/L |Ctrl/Ö|  Ä ' " |
+ * |  Tab   |Ctrl/A|Alt/S |GUI/D |Shft/F|   G  |                              |   H  |Shft/J|GUI/K |Alt/L |Ctrl/Ö|    Ä   |
  * |--------+------+------+------+------+------+-------------.  ,-------------+------+------+------+------+------+--------|
  * | LShift |   Z  |   X  |   C  |   V  |   B  | [ {  |      |  |      |  ] } |   N  |   M  | ,  < | .  > | -  ? | RShift |
  * `----------------------+------+------+------+------+------|  |------+------+------+------+------+----------------------'
@@ -90,7 +90,7 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
  */
     [_QWERTY] = LAYOUT(
         KC_ESC,     KC_Q,       KC_W,       KC_E,       KC_R,       KC_T,                                                       KC_Y,       KC_U,       KC_I,       KC_O,       KC_P,       KC_BSPC,
-        KC_TAB,     LCTL_A,     LALT_S,     LGUI_D,     LSFT_F,     KC_G,                                                       KC_H,       RSFT_J,     RGUI_K,     RALT_L,     RCTL_CLN,   TD(ADIA_QUOT_DQUO),
+        KC_TAB,     LCTL_A,     LALT_S,     LGUI_D,     LSFT_F,     KC_G,                                                       KC_H,       RSFT_J,     RGUI_K,     RALT_L,     RCTL_CLN,   FI_ADIA,
         KC_LSFT,    KC_Z,       KC_X,       KC_C,       KC_V,       KC_B,       A(KC_8),    _______,    _______,    A(KC_9),    KC_N,       KC_M,       TD(COMM_LABK),TD(DOT_RABK),TD(SLSH_QUES),KC_RSFT,
                                             ADJUST,     KC_LGUI,    ALT_ENT,    KC_SPC,     NAV,        SYM,        KC_SPC,     KC_RALT,    KC_RGUI,    KC_APP
     ),
@@ -120,9 +120,9 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
  * Sym Layer: Numbers and symbols
  *
  * ,-------------------------------------------.                              ,-------------------------------------------.
- * |    <   |  1   |  2   |  3   |  4   |  5   |                              |   6  |  7   |  8   |  9   |  0   |   ~    |
+ * |    §   |  1   |  2   |  3   |  4   |  5   |                              |   6  |  7   |  8   |  9   |  0   |   ~    |
  * |--------+------+------+------+------+------|                              |------+------+------+------+------+--------|
- * |    >   |  !   |  @   |  #   |  $   |  %   |                              |   &  |  /   |  (   |  )   |  =   |   ^    |
+ * |    °   |  !   |  @   |  #   |  $   |  %   |                              |   &  |  /   |  (   |  )   |  =   |   ^    |
  * |--------+------+------+------+------+------+-------------.  ,-------------+------+------+------+------+------+--------|
  * |    *   |  '   |  "   |  £   |  €   |  [   |  {   |      |  |      |   }  |   ]  |  |   |  \   |  .   |  -   |   _    |
  * `----------------------+------+------+------+------+------|  |------+------+------+------+------+----------------------'
@@ -245,9 +245,9 @@ void adiaquotdquo_reset(qk_tap_dance_state_t *state, void *user_data) {
 
 qk_tap_dance_action_t tap_dance_actions[] = {
     [ADIA_QUOT_DQUO] = ACTION_TAP_DANCE_FN_ADVANCED(NULL, adiaquotdquo_finished, adiaquotdquo_reset),
-    [COMM_LABK] = ACTION_TAP_DANCE_DOUBLE(KC_COMM, KC_GRV),
-    [DOT_RABK] = ACTION_TAP_DANCE_DOUBLE(KC_DOT, KC_TILD),
-    [SLSH_QUES] = ACTION_TAP_DANCE_DOUBLE(KC_SLSH, FI_QUES)
+    [COMM_LABK] = ACTION_TAP_DANCE_DOUBLE(FI_COMM, FI_LABK),
+    [DOT_RABK] = ACTION_TAP_DANCE_DOUBLE(FI_DOT, FI_RABK),
+    [SLSH_QUES] = ACTION_TAP_DANCE_DOUBLE(FI_MINS, FI_QUES)
 };
 
 #ifdef OLED_ENABLE
