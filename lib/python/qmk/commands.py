@@ -2,15 +2,14 @@
 """
 import os
 import sys
+import json
 import shutil
 from pathlib import Path
-from subprocess import DEVNULL
 
 from milc import cli
 import jsonschema
 
-import qmk.keymap
-from qmk.constants import QMK_FIRMWARE, KEYBOARD_OUTPUT_PREFIX
+from qmk.constants import INTERMEDIATE_OUTPUT_PREFIX
 from qmk.json_schema import json_load, validate
 
 
@@ -52,6 +51,9 @@ def create_make_target(target, dry_run=False, parallel=1, **env_vars):
     for key, value in env_vars.items():
         env.append(f'{key}={value}')
 
+    if cli.config.general.verbose:
+        env.append('VERBOSE=true')
+
     return [make_cmd, *(['-n'] if dry_run else []), *get_make_parallel_args(parallel), *env, target]
 
 
@@ -90,31 +92,6 @@ def create_make_command(keyboard, keymap, target=None, dry_run=False, parallel=1
     return create_make_target(':'.join(make_args), dry_run=dry_run, parallel=parallel, **env_vars)
 
 
-def get_git_version(current_time, repo_dir='.', check_dir='.'):
-    """Returns the current git version for a repo, or the current time.
-    """
-    git_describe_cmd = ['git', 'describe', '--abbrev=6', '--dirty', '--always', '--tags']
-
-    if repo_dir != '.':
-        repo_dir = Path('lib') / repo_dir
-
-    if check_dir != '.':
-        check_dir = repo_dir / check_dir
-
-    if Path(check_dir).exists():
-        git_describe = cli.run(git_describe_cmd, stdin=DEVNULL, cwd=repo_dir)
-
-        if git_describe.returncode == 0:
-            return git_describe.stdout.strip()
-
-        else:
-            cli.log.warn(f'"{" ".join(git_describe_cmd)}" returned error code {git_describe.returncode}')
-            print(git_describe.stderr)
-            return current_time
-
-    return current_time
-
-
 def get_make_parallel_args(parallel=1):
     """Returns the arguments for running the specified number of parallel jobs.
     """
@@ -133,7 +110,7 @@ def get_make_parallel_args(parallel=1):
     return parallel_args
 
 
-def compile_configurator_json(user_keymap, bootloader=None, parallel=1, **env_vars):
+def compile_configurator_json(user_keymap, bootloader=None, parallel=1, clean=False, **env_vars):
     """Convert a configurator export JSON file into a C file and then compile it.
 
     Args:
@@ -155,17 +132,29 @@ def compile_configurator_json(user_keymap, bootloader=None, parallel=1, **env_va
     # e.g.: qmk compile - < keyboards/clueboard/california/keymaps/default/keymap.json
     user_keymap["keymap"] = user_keymap.get("keymap", "default_json")
 
-    # Write the keymap.c file
     keyboard_filesafe = user_keymap['keyboard'].replace('/', '_')
     target = f'{keyboard_filesafe}_{user_keymap["keymap"]}'
-    keyboard_output = Path(f'{KEYBOARD_OUTPUT_PREFIX}{keyboard_filesafe}')
-    keymap_output = Path(f'{keyboard_output}_{user_keymap["keymap"]}')
-    c_text = qmk.keymap.generate_c(user_keymap)
-    keymap_dir = keymap_output / 'src'
-    keymap_c = keymap_dir / 'keymap.c'
+    intermediate_output = Path(f'{INTERMEDIATE_OUTPUT_PREFIX}{keyboard_filesafe}_{user_keymap["keymap"]}')
+    keymap_dir = intermediate_output / 'src'
+    keymap_json = keymap_dir / 'keymap.json'
 
+    if clean:
+        if intermediate_output.exists():
+            shutil.rmtree(intermediate_output)
+
+    # begin with making the deepest folder in the tree
     keymap_dir.mkdir(exist_ok=True, parents=True)
-    keymap_c.write_text(c_text)
+
+    # Compare minified to ensure consistent comparison
+    new_content = json.dumps(user_keymap, separators=(',', ':'))
+    if keymap_json.exists():
+        old_content = json.dumps(json.loads(keymap_json.read_text(encoding='utf-8')), separators=(',', ':'))
+        if old_content == new_content:
+            new_content = None
+
+    # Write the keymap.json file if different
+    if new_content:
+        keymap_json.write_text(new_content, encoding='utf-8')
 
     # Return a command that can be run to make the keymap and flash if given
     verbose = 'true' if cli.config.general.verbose else 'false'
@@ -186,28 +175,27 @@ def compile_configurator_json(user_keymap, bootloader=None, parallel=1, **env_va
     if bootloader:
         make_command.append(bootloader)
 
-    for key, value in env_vars.items():
-        make_command.append(f'{key}={value}')
-
     make_command.extend([
         f'KEYBOARD={user_keymap["keyboard"]}',
         f'KEYMAP={user_keymap["keymap"]}',
         f'KEYBOARD_FILESAFE={keyboard_filesafe}',
         f'TARGET={target}',
-        f'KEYBOARD_OUTPUT={keyboard_output}',
-        f'KEYMAP_OUTPUT={keymap_output}',
-        f'MAIN_KEYMAP_PATH_1={keymap_output}',
-        f'MAIN_KEYMAP_PATH_2={keymap_output}',
-        f'MAIN_KEYMAP_PATH_3={keymap_output}',
-        f'MAIN_KEYMAP_PATH_4={keymap_output}',
-        f'MAIN_KEYMAP_PATH_5={keymap_output}',
-        f'KEYMAP_C={keymap_c}',
+        f'INTERMEDIATE_OUTPUT={intermediate_output}',
+        f'MAIN_KEYMAP_PATH_1={intermediate_output}',
+        f'MAIN_KEYMAP_PATH_2={intermediate_output}',
+        f'MAIN_KEYMAP_PATH_3={intermediate_output}',
+        f'MAIN_KEYMAP_PATH_4={intermediate_output}',
+        f'MAIN_KEYMAP_PATH_5={intermediate_output}',
+        f'KEYMAP_JSON={keymap_json}',
         f'KEYMAP_PATH={keymap_dir}',
         f'VERBOSE={verbose}',
         f'COLOR={color}',
         'SILENT=false',
         'QMK_BIN="qmk"',
     ])
+
+    for key, value in env_vars.items():
+        make_command.append(f'{key}={value}')
 
     return make_command
 
@@ -225,93 +213,26 @@ def parse_configurator_json(configurator_file):
         exit(1)
 
     orig_keyboard = user_keymap['keyboard']
-    aliases = json_load(Path('data/mappings/keyboard_aliases.json'))
+    aliases = json_load(Path('data/mappings/keyboard_aliases.hjson'))
 
     if orig_keyboard in aliases:
         if 'target' in aliases[orig_keyboard]:
             user_keymap['keyboard'] = aliases[orig_keyboard]['target']
 
-        if 'layouts' in aliases[orig_keyboard] and user_keymap['layout'] in aliases[orig_keyboard]['layouts']:
-            user_keymap['layout'] = aliases[orig_keyboard]['layouts'][user_keymap['layout']]
-
     return user_keymap
 
 
-def git_get_username():
-    """Retrieves user's username from Git config, if set.
+def build_environment(args):
+    """Common processing for cli.args.env
     """
-    git_username = cli.run(['git', 'config', '--get', 'user.name'])
-
-    if git_username.returncode == 0 and git_username.stdout:
-        return git_username.stdout.strip()
-
-
-def git_check_repo():
-    """Checks that the .git directory exists inside QMK_HOME.
-
-    This is a decent enough indicator that the qmk_firmware directory is a
-    proper Git repository, rather than a .zip download from GitHub.
-    """
-    dot_git_dir = QMK_FIRMWARE / '.git'
-
-    return dot_git_dir.is_dir()
-
-
-def git_get_branch():
-    """Returns the current branch for a repo, or None.
-    """
-    git_branch = cli.run(['git', 'branch', '--show-current'])
-    if not git_branch.returncode != 0 or not git_branch.stdout:
-        # Workaround for Git pre-2.22
-        git_branch = cli.run(['git', 'rev-parse', '--abbrev-ref', 'HEAD'])
-
-    if git_branch.returncode == 0:
-        return git_branch.stdout.strip()
-
-
-def git_get_tag():
-    """Returns the current tag for a repo, or None.
-    """
-    git_tag = cli.run(['git', 'describe', '--abbrev=0', '--tags'])
-    if git_tag.returncode == 0:
-        return git_tag.stdout.strip()
-
-
-def git_is_dirty():
-    """Returns 1 if repo is dirty, or 0 if clean
-    """
-    git_diff_staged_cmd = ['git', 'diff', '--quiet']
-    git_diff_unstaged_cmd = [*git_diff_staged_cmd, '--cached']
-
-    unstaged = cli.run(git_diff_staged_cmd)
-    staged = cli.run(git_diff_unstaged_cmd)
-
-    return unstaged.returncode != 0 or staged.returncode != 0
-
-
-def git_get_remotes():
-    """Returns the current remotes for a repo.
-    """
-    remotes = {}
-
-    git_remote_show_cmd = ['git', 'remote', 'show']
-    git_remote_get_cmd = ['git', 'remote', 'get-url']
-
-    git_remote_show = cli.run(git_remote_show_cmd)
-    if git_remote_show.returncode == 0:
-        for name in git_remote_show.stdout.splitlines():
-            git_remote_name = cli.run([*git_remote_get_cmd, name])
-            remotes[name.strip()] = {"url": git_remote_name.stdout.strip()}
-
-    return remotes
-
-
-def git_check_deviation(active_branch):
-    """Return True if branch has custom commits
-    """
-    cli.run(['git', 'fetch', 'upstream', active_branch])
-    deviations = cli.run(['git', '--no-pager', 'log', f'upstream/{active_branch}...{active_branch}'])
-    return bool(deviations.returncode)
+    envs = {}
+    for env in args:
+        if '=' in env:
+            key, value = env.split('=', 1)
+            envs[key] = value
+        else:
+            cli.log.warning('Invalid environment variable: %s', env)
+    return envs
 
 
 def in_virtualenv():
@@ -331,7 +252,7 @@ def dump_lines(output_file, lines, quiet=True):
         output_file.parent.mkdir(parents=True, exist_ok=True)
         if output_file.exists():
             output_file.replace(output_file.parent / (output_file.name + '.bak'))
-        output_file.write_text(generated)
+        output_file.write_text(generated, encoding='utf-8')
 
         if not quiet:
             cli.log.info(f'Wrote {output_file.name} to {output_file}.')
